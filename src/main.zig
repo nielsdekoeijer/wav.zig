@@ -29,15 +29,28 @@ pub fn WavParser(
             obuffer: *[numChannels][obufferSize]otype,
         ) void {
             _ = self;
-            const ioratio: usize = ibufferSize / obufferSize;
-            comptime std.debug.assert((ibufferSize / obufferSize) == (@bitSizeOf(itype) / 8));
+            const hop: usize = @bitSizeOf(itype) / 8;
+            comptime std.debug.assert(@mod(ibufferSize, hop) == 0);
+            comptime std.debug.assert(((ibufferSize / numChannels) / hop) == obufferSize);
             @setEvalBranchQuota(3 * numChannels * obufferSize);
             inline for (0..numChannels) |ch| {
                 inline for (0..obufferSize) |idx| {
-                    const s = numChannels * ioratio * idx + ioratio * ch;
-                    const h = comptime ioratio;
-                    const ovalue: itype = std.mem.readIntNative(itype, ibuffer[s .. s + h]);
-                    obuffer[ch][idx] = @intToFloat(otype, ovalue) / @intToFloat(otype, std.math.maxInt(itype));
+                    const s: usize = numChannels * hop * idx + hop * ch;
+                    const h: usize = comptime hop;
+                    switch (itype) {
+                        i16, i24, i32 => {
+                            const ovalue: itype = std.mem.readIntNative(itype, ibuffer[s .. s + h]);
+                            obuffer[ch][idx] = @intToFloat(otype, ovalue) /
+                                @intToFloat(otype, std.math.maxInt(itype));
+                        },
+                        u8 => {
+                            const ovalue: itype = std.mem.readIntNative(itype, ibuffer[s .. s + h]);
+                            obuffer[ch][idx] = (@intToFloat(otype, ovalue) -
+                                @intToFloat(otype, std.math.maxInt(i8))) /
+                                @intToFloat(otype, std.math.maxInt(i8));
+                        },
+                        else => unreachable,
+                    }
                 }
             }
         }
@@ -88,25 +101,242 @@ pub fn WavParser(
     };
 }
 
-test "read a wav file" {
-    var file = try std.fs.cwd().openFile("billie.wav", .{});
+test "1ch_s16" {
+    var file = try std.fs.cwd().openFile("./data/sin_1ch_s16_pcm.wav", .{});
     defer file.close();
-
     var reader = std.io.bufferedReader(file.reader());
     var stream = reader.reader();
+
+    const itype = i16;
+    const otype = f32;
+    const nchan = 1;
 
     // first read header
     var headerData: [44]u8 = undefined;
     _ = try stream.read(&headerData);
-    const header = try WavParser(1, i16, f32).parseHeader(headerData);
-    std.debug.print("\n{any}\n{any}\n{any}\n{any}\n", header);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
 
     // next data
-    var idata: [1024]u8 = undefined;
+    const in = 2 * 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
     _ = try stream.read(&idata);
-    var odata: [1][512]f32 = [_][512]f32{[_]f32{0.0} ** 512};
-    header.parseAudio(1024, 512, &idata, &odata);
-    for (0..512) |idx| {
-        std.debug.print("{any} :: {any}\n", .{ @intToFloat(f32, idx) / @intToFloat(f32, header.sampleRate), odata[0][idx] });
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
+    }
+}
+
+test "1ch_s24" {
+    var file = try std.fs.cwd().openFile("./data/sin_1ch_s24_pcm.wav", .{});
+    defer file.close();
+    var reader = std.io.bufferedReader(file.reader());
+    var stream = reader.reader();
+
+    const itype = i24;
+    const otype = f32;
+    const nchan = 1;
+
+    // first read header
+    var headerData: [44]u8 = undefined;
+    _ = try stream.read(&headerData);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
+
+    // next data
+    const in = 3 * 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
+    _ = try stream.read(&idata);
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
+    }
+}
+
+test "1ch_s32" {
+    var file = try std.fs.cwd().openFile("./data/sin_1ch_s32_pcm.wav", .{});
+    defer file.close();
+    var reader = std.io.bufferedReader(file.reader());
+    var stream = reader.reader();
+
+    const itype = i32;
+    const otype = f32;
+    const nchan = 1;
+
+    // first read header
+    var headerData: [44]u8 = undefined;
+    _ = try stream.read(&headerData);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
+
+    // next data
+    const in = 4 * 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
+    _ = try stream.read(&idata);
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
+    }
+}
+
+test "1ch_u8" {
+    var file = try std.fs.cwd().openFile("./data/sin_1ch_u8_pcm.wav", .{});
+    defer file.close();
+    var reader = std.io.bufferedReader(file.reader());
+    var stream = reader.reader();
+
+    const itype = u8;
+    const otype = f32;
+    const nchan = 1;
+
+    // first read header
+    var headerData: [44]u8 = undefined;
+    _ = try stream.read(&headerData);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
+
+    // next data
+    const in = 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
+    _ = try stream.read(&idata);
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
+    }
+}
+
+test "2ch_s16" {
+    var file = try std.fs.cwd().openFile("./data/sin_2ch_s16_pcm.wav", .{});
+    defer file.close();
+    var reader = std.io.bufferedReader(file.reader());
+    var stream = reader.reader();
+
+    const itype = i16;
+    const otype = f32;
+    const nchan = 2;
+
+    // first read header
+    var headerData: [44]u8 = undefined;
+    _ = try stream.read(&headerData);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
+
+    // next data
+    const in = 2 * 2 * 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
+    _ = try stream.read(&idata);
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
+    }
+}
+
+test "2ch_s24" {
+    var file = try std.fs.cwd().openFile("./data/sin_2ch_s24_pcm.wav", .{});
+    defer file.close();
+    var reader = std.io.bufferedReader(file.reader());
+    var stream = reader.reader();
+
+    const itype = i24;
+    const otype = f32;
+    const nchan = 2;
+
+    // first read header
+    var headerData: [44]u8 = undefined;
+    _ = try stream.read(&headerData);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
+
+    // next data
+    const in = 2 * 3 * 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
+    _ = try stream.read(&idata);
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
+    }
+}
+
+test "2ch_s32" {
+    var file = try std.fs.cwd().openFile("./data/sin_2ch_s32_pcm.wav", .{});
+    defer file.close();
+    var reader = std.io.bufferedReader(file.reader());
+    var stream = reader.reader();
+
+    const itype = i32;
+    const otype = f32;
+    const nchan = 2;
+
+    // first read header
+    var headerData: [44]u8 = undefined;
+    _ = try stream.read(&headerData);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
+
+    // next data
+    const in = 2 * 4 * 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
+    _ = try stream.read(&idata);
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
+    }
+}
+
+test "2ch_u8" {
+    var file = try std.fs.cwd().openFile("./data/sin_2ch_u8_pcm.wav", .{});
+    defer file.close();
+    var reader = std.io.bufferedReader(file.reader());
+    var stream = reader.reader();
+
+    const itype = u8;
+    const otype = f32;
+    const nchan = 2;
+
+    // first read header
+    var headerData: [44]u8 = undefined;
+    _ = try stream.read(&headerData);
+    const header = try WavParser(nchan, itype, otype).parseHeader(headerData);
+
+    // next data
+    const in = 2 * 10;
+    const on = 10;
+
+    var idata: [in]u8 = undefined;
+    _ = try stream.read(&idata);
+    var odata: [nchan][on]otype = [_][on]otype{[_]otype{0.0} ** on} ** nchan;
+    header.parseAudio(in, on, &idata, &odata);
+    for (0..nchan) |ch| {
+        for (0..on) |idx| {
+            std.debug.print("{any}\n", .{odata[ch][idx]});
+        }
     }
 }
